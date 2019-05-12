@@ -1,0 +1,54 @@
+trigger:
+- development
+resources:
+  containers:
+  - container: dotnetbuilder
+    image: jilsan-dotnet-builder:2.2.1
+    endpoint: acr
+  - container: dotnetreleasecontainer
+    image: jilsan-dotnet-image-builder
+    endpoint: acr
+variables:
+  path_to_artifacts: $(System.ArtifactsDirectory)/expenseentryapi
+  artifact_name: release-$(Build.BuildNumber).zip
+  app_name: expenseentryapi
+  dll_name: ExpenseEntryApI.dll
+  docker-repository: jilsanregistries.azurecr.io/fastexpenses
+jobs: 
+  - job: BuildExpenseEntryAPI
+    pool:
+        name: Hosted Ubuntu 1604
+    container : dotnetbuilder
+    steps:
+          - script: dotnet publish ExpenseEntry.sln -c Release
+            displayName: Dotnet build
+          - script: zip -r -j release-$(Build.BuildNumber).zip ExpenseEntryAPI/bin/Release/netcoreapp2.1/publish/*
+            displayName: Package the artifact into zip
+          - script: cp release-$(Build.BuildNumber).zip $(Build.ArtifactStagingDirectory)
+            displayName: Copy to Staging area
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathtoPublish: $(Build.ArtifactStagingDirectory)
+              artifactName: expenseentryapi
+            displayName: Publish Artifact
+  - job: BuildExpenseEntryContainer
+    pool:
+        name: Hosted Ubuntu 1604
+    container : dotnetreleasecontainer
+    steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              downloadPath: '$(System.ArtifactsDirectory)' 
+              artifactName: expenseentryapi      
+            displayName: Download Artifact
+          - script: build        
+            displayName: Build Image
+          - script: docker tag $(app_name):$(Build.BuildNumber) $(docker-repository)/$(app_name):$(Build.BuildNumber)
+            displayName: Tag Image
+          - script: docker login jilsanregistries.azurecr.io -u $(acrusername) -p $(acrpassword)
+            displayName: Registry Login
+          - script: docker push $(docker-repository)/$(app_name):$(Build.BuildNumber)
+            displayName: Push Image
+    dependsOn: BuildExpenseEntryAPI
+    condition: succeeded()          
+
